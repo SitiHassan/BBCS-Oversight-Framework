@@ -14,7 +14,7 @@ The project provides a consistent process for:
 * carrying out data quality checks
 * preparing results for reporting and downstream analysis
 
-# Supported calculations
+## Supported calculations
 The engine can process a range of metric types, including:
 * counts
 * percentages
@@ -25,7 +25,7 @@ The engine can process a range of metric types, including:
 * percentage changes
 * percentage point differences
   
-# Running the project
+## Running the project
 1. Clone the repository
 2. Open the R project in RStudio
 3. Update the required input paths and configuration
