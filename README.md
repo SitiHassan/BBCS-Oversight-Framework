@@ -1,25 +1,35 @@
-# BSOL sample project folder
+# NHS Oversight Framework Metric Engine
 
-This git repository contains a shell that should be used as the default structure for new projects
-in the analytical team.  It won't fit all circumstances perfectly, and you can make changes and issue a 
-pull request for new features / changes.
+This git repository contains a reusable metric engine for processing [NHS Oversight Framework](https://www.england.nhs.uk/nhs-oversight-framework/) metrics.
 
-The aim of this template is two-fold: firstly to give a common structure for analytical projects to aid
-reproducibility, secondly to allow for additional security settings as default to prevent accidental upload of files that should not be committed to Git and GitHub.
+The engine was developed using the existng [Outcomes Framework](https://github.com/BBCS-PHI/2_BSOL_Outcomes_Framework) metric engine as a foundation and adapted to meet the Oversight Framework's specific data structures, calculation methods and technical requirements. 
 
-__Please update/replace this README file with one relevant to your project__
+The engine is metadata-driven, using a central control file to define the downstream processing and calculation logic for each metric.
 
-## To use this template, please use the following practises:
+## Purpose
+The project provides a consistent process for:
+* importing metric data
+* applying metric-specific calculations
+* producing standardised outputs
+* carrying out data quality checks
+* preparing results for reporting and downstream analysis
 
-* Put any data files in the `data` folder.  This folder is explicitly named in the .gitignore file.  A further layer of security is that all xls, xlsx, csv and pdf files are also explicit ignored in the whole folder as well.  ___If you need to commit one of these files, you must use the `-f` (force) command in `commit`, but you must be sure there is no identifiable data.__
-* Save any documentation, images of support files in the `assets` folder.  This does not mean you should avoid commenting your code, but if you have an operating procedure or supporting documents, add them to this folder.
-* Please save all outputs: data, formatted tables, graphs etc. in the output folder.  This is also implicitly ignored by git, but you can use the `-f` (force) command in `commit` to add any you wish to publish to github.
-
-
-### Please also consider the following:
-* Linting your code.  This is a formatting process that follows a rule set.  We broadly encourage the tidyverse standard, and recommend the `lintr` package.
-* Comment your code to make sure others can follow.
-* Consider your naming conventions: we recommend `snake case` where spaces are replaced by underscores and no capitals are use. E.g. `outpatient_referral_data`
-
-
+# Supported calculations
+The engine can process a range of metric types, including:
+* counts
+* percentages
+* proportions
+* directly age-standardised rates
+* crude rates
+* ratios
+* percentage changes
+* percentage point differences
+  
+# Running the project
+1. Clone the repository
+2. Open the R project in RStudio
+3. Update the required input paths and configuration
+4. Run the main processing script
+5. Review the generated outputs and DQ checks
+   
 This repository is dual licensed under the [Open Government v3]([https://www.nationalarchives.gov.uk/doc/open-government-licence/version/3/) & MIT. All code and outputs are subject to Crown Copyright.
