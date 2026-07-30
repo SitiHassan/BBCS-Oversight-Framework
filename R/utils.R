@@ -1052,6 +1052,219 @@ calc_dasr <- function(df_in, metadata, age_lookup){
 
 }
 
+# Function to calculate SII ----------------------------------------------------
+calculate_sii <- function(data, group_cols = c("indicator_id", "start_date", "end_date",
+                                               "aggregation_id", "age_group_code", "sex_code",
+                                               "ethnicity_code", "source_code"),
+                          quintile_col, numerator_col, denominator_col){
+  
+  #1. Check inputs
+  
+  # Missing function arguments
+  if(missing(data) || missing(quintile_col) || missing(numerator_col) || missing(denominator_col)){
+    stop("function calculate_sii() requires the arguments: `data`,  `quintile_col`, `numerator_col`, `denominator_col`")
+  }
+  
+  # Capture the supplied column names
+  group_names <- group_cols # already a character vector
+  quintile_name <- rlang::as_name(rlang::ensym(quintile_col))
+  numerator_name <- rlang::as_name(rlang::ensym(numerator_col))
+  denominator_name <- rlang::as_name(rlang::ensym(denominator_col))
+  
+  required_columns <- c(group_names, quintile_name, numerator_name, denominator_name)
+  
+  missing_columns <- setdiff(required_columns, names(data))
+  
+  if(length(missing_columns) > 0){
+    stop("The following supplied columns do not exist in `data`: ", 
+         paste(missing_columns, collapse = ", "))
+  }
+  
+  # Extract the supplied columns needed to calculate SII
+  quintiles <- suppressWarnings(
+    as.integer(as.character(data[[quintile_name]])) # Convert IMD quintiles to integer if in character
+    ) 
+  numerators <- data[[numerator_name]]
+  denominators <- data[[denominator_name]]
+  
+  # Check for missing numerators or denominators
+  if(anyNA(numerators) || anyNA(denominators)){
+    stop("Numerator and denominator cannot contain missing values.")
+  }
+  
+  # Check for non-numeric numerators and denominators
+  if(!is.numeric(numerators) || !is.numeric(denominators)){
+    stop("Numerators and denominators must be numeric columns.")
+  }
+  
+  # Check for negative denominators
+  if(any(denominators <= 0)){
+    stop("All denominators must be greater than zero.")
+  }
+  
+  # Check for negative numerators
+  if(any(numerators < 0)){
+    stop("Numerators cannot be negative.")
+  }
+  
+  # Check for invalid numerators being greater than denominators
+  if(any(numerators > denominators)){
+    stop("The numerator cannot be greater than the denominator.")
+  }
+  
+  # Check quintiles within every grouping level
+  quintile_check <- data |> 
+    dplyr::mutate(
+      .quintile = quintiles
+    ) |> 
+    dplyr::group_by(
+      dplyr::across(dplyr::all_of(group_names))
+    ) |> 
+    dplyr::summarise(
+      row_count = dplyr::n(),
+      distinct_quintiles = dplyr::n_distinct(.quintile),
+      has_missing_quintile = anyNA(.quintile),
+      duplicated_quintile = anyDuplicated(.quintile) > 0,
+      correct_quintile_set = setequal(.quintile, 1:5),
+      quintiles_found = paste(sort(unique(.quintile)), collapse = ", "),
+      .groups = "drop"
+    ) |> 
+    dplyr::mutate(
+      valid_quintiles = row_count == 5 & 
+        distinct_quintiles == 5 &
+        !has_missing_quintile &
+        !duplicated_quintile &
+        correct_quintile_set
+        
+    )
+  
+  invalid_groups <- quintile_check |> 
+    dplyr::filter(!valid_quintiles)
+  
+  if(nrow(invalid_groups) > 0){
+    print(invalid_groups)
+    stop(
+      nrow(invalid_groups),
+      " grouping level(s) do not contain exactly one row ",
+      "for each IMD quintile 1, 2, 3, 4 and 5. ",
+      "See the printed table for details."
+    )
+  }
+  
+  #2. Create variables needed to fit a linear model
+  model_data <- data |> 
+    dplyr::mutate(
+      deprivation_position = dplyr::recode(
+        quintiles,
+        `1` = 0.9, # Most deprived
+        `2` = 0.7,
+        `3` = 0.5,
+        `4` = 0.3,
+        `5` = 0.1 # Least deprived
+      ),
+      proportion = numerators / denominators,
+      variance = proportion * (1 - proportion) / denominators
+    )
+  
+  if (any(model_data$variance == 0)){
+    stop(
+      "At least one quintile has variance equal to zero. ",
+      "This occurs when the proportion is exactly 0 or 1."
+    )
+  }
+  
+  if(any(!is.finite(model_data$variance)) || any(model_data$variance <0)){
+    stop("One or more variance values are invalid.")
+  }
+  
+  #3. Calculate inverse variance weight
+  model_data <- model_data |> 
+    dplyr::mutate(
+      inverse_variance_weight = 1 / variance
+    )
+  
+  #4. Create one nested dataset per grouping level
+  model_data <- model_data |> 
+    dplyr::group_by(
+      dplyr::across(dplyr::all_of(group_names))
+    ) |>
+    tidyr::nest()
+    
+  #5. Fit one linear model per grouping level
+  model_data <- model_data |> 
+    dplyr::mutate(
+      model = purrr::map(
+        .data$data,
+        ~ stats::lm(
+          proportion ~ deprivation_position,
+          data = .x,
+          weights = .x$inverse_variance_weight
+          )
+        )
+      )
+  
+  #6. Predict the deprivation extremes for each model
+  model_data <- model_data |> 
+    dplyr::mutate(
+      predictions = purrr::map(
+        model, 
+        ~ stats::predict(
+          .x,
+          newdata = tibble::tibble(
+            deprivation_position = c(0,1)
+            )
+          )
+        )
+      )
+  
+  
+  #7. Extract slope and intercept
+  model_data <- model_data |> 
+    dplyr::mutate(
+      slope = purrr:map_dbl(
+        model,
+        ~ unname(
+          stats::coef(.x)[["deprivation_position"]]
+        )
+      ),
+      intercept =  purrr:map_dbl(
+        model,
+        ~ unname(
+          stats::coef(.x)[["(Intercept)"]]
+        )
+      )
+    )
+  
+  #8. Create final output
+  model_data <- model_data |> 
+    dplyr::mutate(
+    sii_signed_percentage_points = slope * 100,
+    sii_absolute_percentage_points = abs(slope * 100),
+    predicted_least_deprived_percent = purrr::map_dbl(
+      predictions,
+      ~ unname(.x[1]) * 100
+    ),
+    predicted_most_deprived_percent = purrr::map_dbl(
+      predictions,
+      ~ unname(.x[2]) * 100
+    )
+  )
+  
+  #9. Return final table
+  model_data |> 
+    dplyr::select(
+      dplyr::all_of(group_names),
+      intercept,
+      slope,
+      sii_signed_percentage_points,
+      sii_absolute_percentage_points,
+      predicted_least_deprived_percent,
+      predicted_most_deprived_percent
+    ) |> 
+    dplyr::ungroup()
+
+}
+
 
 # Function to calculate different value types ----------------------------------
 
