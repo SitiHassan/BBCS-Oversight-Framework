@@ -33,7 +33,7 @@
 #   - status_code == 1
 #   - value_type_code is present (non-NA)
 
-calculate_values <- function(data, metadata, metadata_key = "indicator_id"){
+calculate_values <- function(data, metadata, age_lookup, metadata_key = "indicator_id"){
   
   # -------- Validate inputs / bring in value_multiplier ---------------------------
   message("\u25B6 Cleaning data types and validating inputs...")
