@@ -24,7 +24,7 @@ check_row_counts <- function(df, reference_data) {
 
 # ignoring numerator and denominator as these can be empty columns for pre-calculated indicators
 
-check_rows_with_missing <- function(df, metadata, cols = NULL,
+check_missing_rows <- function(df, metadata, cols = NULL,
                                     ignore = c("numerator", "denominator",
                                                "lower_ci95", "upper_ci95"),
                                     show_n = 10
@@ -140,48 +140,96 @@ check_time_period_type <- function(df) {
 ## Function to check value columns are populated for active indicators ---------
 
 check_active_indicator_values <- function(df, metadata) {
-  active_ids <- metadata |> 
-    filter(status_code == 1) |> 
-    distinct(indicator_id) |> 
-    pull(indicator_id)
   
-  # Return rows with missing values in the key indicator_value column
-  failures <- df |> 
-    filter(indicator_id %in% active_ids,
-           is.na(indicator_value))
+  active_ids <- metadata |> 
+    dplyr::filter(status_code == 1) |> # Active indicators
+    dplyr::distinct(indicator_id) |> 
+    dplyr::pull(indicator_id)
+  
+  # Missing values that are not expected
+  failures <- df |>
+    dplyr::filter(
+      indicator_id %in% active_ids,
+      is.na(indicator_value),
+      !(
+        (value_type_code == 9 & (is.na(denominator) | denominator == 0)) | # Percentage change
+          (value_type_code == 2 & (is.na(denominator) | denominator == 0)) | # Percentage
+          (value_type_code == 10 & (is.na(denominator) | denominator == 0))
+      )
+    )
   
   if (nrow(failures) == 0) {
-    message("\u2705 PASS: All active indicators have populated indicator_value.")
-    return(invisible(NULL))  
-  } else {
-    failed_ids <- failures |> 
-      distinct(indicator_id) |> 
-      pull(indicator_id)
     
-    message("\u26A0\uFE0F WARNING: Found active indicators with missing indicator_value. However, this may be acceptable for percentage change metrics, particularly when there are no baseline/previous/plan values for the actuals to be compared against.
-             Indicator IDs:", paste(failed_ids, collapse = ", "))
-    print(head(failures))
+    message("\u2705 PASS: All active indicators have a populated indicator_value, excluding expected missing percentage and percentage-change values.")
+    
+    return(invisible(NULL)) 
+    
+  } else {
+    
+    failure_summary <- failures |> 
+      dplyr::count(
+        indicator_id,
+        value_type_code,
+        name = "missing_rows"
+      ) |> 
+      dplyr::arrange(
+        indicator_id,
+        value_type_code
+      )
+    
+    failed_ids <- failure_summary |> 
+      dplyr::distinct(indicator_id) |> 
+      dplyr::pull(indicator_id)
+    
+    message("\u26A0\uFE0F WARNING: Found active indicators withunexpected ",
+            "missing indicator_value for indicator ID(s): ", paste(failed_ids, collapse = ", "))
+    
+    print(failure_summary)
+    
     return(failures)
   }
 }
 
 # Function to check missing confidence intervals -------------------------------
-check_missing_confidence_intervals <- function(df){
-  warnings <- df |> 
-    filter(!is.na(indicator_value),
-           is.na(lower_ci95) | is.na(upper_ci95)
+check_missing_confidence_intervals <- function(df) {
+  
+  warnings <- df |>
+    dplyr::filter(
+      !is.na(indicator_value),
+      is.na(lower_ci95) | is.na(upper_ci95)
     )
   
-  if(nrow(warnings) == 0){
-    message("\u2705 PASS: No missing confidence intervals." )
-  } else{
-    failed_ids <- warnings |> 
-      distinct(indicator_id) |> 
-      pull(indicator_id)
+  if (nrow(warnings) == 0) {
     
-    message("\u26A0\uFE0F WARNING: Some rows have missing confidence intervals, but this may be acceptable.
-            Indicator IDs:", paste(sort(failed_ids), collapse = ", "))
-    print(head(warnings))
+    message(
+      "\u2705 PASS: No missing confidence intervals."
+    )
+    
+  } else {
+    
+    failure_summary <- warnings |>
+      dplyr::count(
+        indicator_id,
+        value_type_code,
+        name = "missing_rows"
+      ) |>
+      dplyr::arrange(
+        indicator_id,
+        value_type_code
+      )
+    
+    failed_ids <- failure_summary |>
+      dplyr::distinct(indicator_id) |>
+      dplyr::pull(indicator_id)
+    
+    message(
+      "\u26A0\uFE0F WARNING: Some rows have missing confidence intervals. ",
+      "This may be acceptable for value types where confidence intervals ",
+      "are not expected. \n Indicator ID(s): ",
+      paste(sort(failed_ids), collapse = ", ")
+    )
+    
+    print(failure_summary)
   }
   
   return(warnings)
@@ -280,21 +328,34 @@ check_source_code <- function(
 
 
 # Function to check valid percentages ------------------------------------------
-check_percentages <- function(df){
-  invalid_rows <- df |>
-    filter(value_type_code == 2,
-           !is.na(indicator_value),
-           indicator_value > 100)
+check_percentages <- function(df) {
   
-  if(nrow(invalid_rows) > 0){
+  invalid_rows <- df |>
+    dplyr::filter(
+      value_type_code == 2,
+      !is.na(indicator_value),
+      indicator_value > 100
+    )
+  
+  if (nrow(invalid_rows) > 0) {
     
     failed_indicators <- unique(invalid_rows$indicator_id)
-    message("\u26A0\uFE0F WARNING: Found percentages greater than 100 for indicator(s):",
-            paste(failed_indicators, collapse = ", ")
+    
+    message(
+      "\u26A0\uFE0F WARNING: Found percentage values greater than 100 for ",
+      "indicator ID(s): ",
+      paste(failed_indicators, collapse = ", "),
+      ".\n This may be valid for metrics comparing actual performance against ",
+      "planned or target values, where the actual numerator exceeds the ",
+      "planned denominator. Please review these indicators to confirm that ",
+      "values above 100% are expected."
     )
     
-  } else{
-    message("\u2705 PASS: All percentage values are valid.")
+  } else {
+    
+    message(
+      "\u2705 PASS: No percentage values greater than 100 were found."
+    )
   }
   
   return(invalid_rows)
@@ -310,7 +371,7 @@ run_all_dq_checks <- function(df, reference_data, metadata, cols_to_check = NULL
   cat("\n")
   
   message("2) Rows with missing required columns\n")
-  check_rows_with_missing(df, metadata = metadata)
+  check_missing_rows(df, metadata = metadata)
   cat("\n")
   
   message("3) Unique age_group_code for DASR indicators\n")
@@ -339,9 +400,11 @@ run_all_dq_checks <- function(df, reference_data, metadata, cols_to_check = NULL
   
   message("9) Check invalid percentage values \n")
   check_percentages(df)
+  cat("\n")
   
   message("10) Check missing confidence intervals \n")
   check_missing_confidence_intervals(df)
+  cat("\n")
   
   message("\n==== DQ checks completed ====\n")
 }
