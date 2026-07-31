@@ -727,6 +727,7 @@ get_duration_label <- function(start_date, end_date) {
 
   case_when(
     is_n_months(1) ~ "Monthly",
+    is_n_months(3) ~ "Quarterly",
     is_n_years(1) ~ "1 year",
     is_n_years(3) ~ "3 year pooled",
     is_n_years(5) ~ "5 year pooled",

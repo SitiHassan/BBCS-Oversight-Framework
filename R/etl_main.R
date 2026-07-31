@@ -100,7 +100,7 @@ run_all_dq_checks(df = output$result$combined_calc_dfs,
 
 # 5) Add insertion time stamp and standardise schema ---------------------------
 result <- output$result$combined_calc_dfs |>
-  filter(time_period_type %in% c("1 year", "Monthly")) |> 
+  filter(time_period_type %in% c("1 year", "Monthly", "Quarterly")) |> 
   mutate(insertion_date_time = Sys.time()) |>
   mutate(
     indicator_id     = as.integer(indicator_id),
