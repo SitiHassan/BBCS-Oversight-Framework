@@ -15,7 +15,7 @@ check_row_counts <- function(df, reference_data) {
   if (input_rows == reference_rows) {
     message("\u2705 PASS: Row counts match: ", input_rows, " rows")
   } else {
-    message("\u274C FAIL: Row counts do NOT match. ",
+    message("\u26A0\uFE0F WARNING: Row counts do NOT match. ",
             "Input: ", input_rows, " rows | Reference: ", reference_rows, " rows")
   }
 }
@@ -37,24 +37,53 @@ check_rows_with_missing <- function(df, metadata, cols = NULL,
   #   A dataframe with columns containing missing rows
   
   current_ids <- metadata |>
-    filter(status_code == 1 & precalculated == "No") |> # only want to check non pre-calculated indicators
-    distinct(indicator_id) |>
-    pull(indicator_id)
+    dplyr::filter(status_code == 1 & precalculated == "No") |> # only want to check non pre-calculated indicators
+    dplyr::distinct(indicator_id) |>
+    dplyr::pull(indicator_id)
   
   # columns to check
   cols_to_check <-
     if (is.null(cols)) setdiff(names(df), ignore) else intersect(cols, names(df))
   
   miss_df <- df |>
-    filter(denominator != 0 & !is.na(denominator)) |> # rows required processing
-    filter(indicator_id %in% current_ids) |>
-    filter(if_any(all_of(cols_to_check), ~ is.na(.x)))
+    filter(denominator != 0 & !is.na(denominator)) |>
+    dplyr::filter(indicator_id %in% current_ids) |>
+    dplyr::filter(if_any(all_of(cols_to_check), ~ is.na(.x)))
+  
   
   if (nrow(miss_df) == 0) {
     message("\u2705 PASS: No rows with missing values in the checked columns.")
   } else {
-    message("\u274C FAIL: Found rows with missing values in the checked columns: ", nrow(miss_df))
-    print(utils::head(miss_df, show_n))
+    missing_summary <- miss_df |>
+      dplyr::select(
+        indicator_id,
+        dplyr::all_of(setdiff(cols_to_check, "indicator_id"))
+      ) |>
+      dplyr::mutate(
+        dplyr::across(
+          -indicator_id,
+          ~ is.na(.x)
+        )
+      ) |>
+      tidyr::pivot_longer(
+        cols = -indicator_id,
+        names_to = "missing_column",
+        values_to = "is_missing"
+      ) |>
+      dplyr::filter(is_missing) |>
+      dplyr::count(
+        indicator_id,
+        missing_column,
+        name = "missing_rows"
+      ) |>
+      dplyr::arrange(
+        indicator_id,
+        missing_column
+      )
+      
+    message("\u26A0\uFE0F WARNING: Found rows with missing values in the checked columns: ", nrow(miss_df))
+    print(missing_summary)
+    
   }
   
   return(miss_df)
@@ -84,7 +113,7 @@ check_age_group_code <- function(df) {
   if(nrow(unique_age_count) == 0){
     message("\u2705 PASS: One unique age group code per dasr indicator ID")
   } else{
-    message("\u274C FAIL: More than 1 age group code per dasr indicator ID")
+    message("\u26A0\uFE0F WARNING: More than 1 age group code per dasr indicator ID")
   }
 }
 
@@ -102,7 +131,7 @@ check_time_period_type <- function(df) {
   if (nrow(missing_rows) == 0) {
     message("\u2705 PASS: time_period_type is populated for all rows.")
   } else {
-    message("\u274C FAIL: Some indicators are missing time_period_type. Details below:")
+    message("\u26A0\uFE0F WARNING: Some indicators are missing time_period_type. Details below:")
     print(missing_rows)
   }
 }
@@ -129,7 +158,7 @@ check_active_indicator_values <- function(df, metadata) {
       distinct(indicator_id) |> 
       pull(indicator_id)
     
-    message("\u274C FAIL: Found active indicators with missing indicator_value. However, this may be acceptable for percentage change metrics, particularly when there are no baseline/previous/plan values for the actuals to be compared against.
+    message("\u26A0\uFE0F WARNING: Found active indicators with missing indicator_value. However, this may be acceptable for percentage change metrics, particularly when there are no baseline/previous/plan values for the actuals to be compared against.
              Indicator IDs:", paste(failed_ids, collapse = ", "))
     print(head(failures))
     return(failures)
@@ -150,7 +179,7 @@ check_missing_confidence_intervals <- function(df){
       distinct(indicator_id) |> 
       pull(indicator_id)
     
-    message("\u274C FAIL: Some rows have missing confidence intervals, but this may be acceptable.
+    message("\u26A0\uFE0F WARNING: Some rows have missing confidence intervals, but this may be acceptable.
             Indicator IDs:", paste(sort(failed_ids), collapse = ", "))
     print(head(warnings))
   }
@@ -171,7 +200,7 @@ check_combination_splits <- function(df) {
   if (nrow(missing_rows) == 0) {
     message("\u2705 PASS: combination_id is populated for all rows.")
   } else {
-    message("\u274C FAIL: Some indicators are missing combination_id. Details below:")
+    message("\u26A0\uFE0F WARNING: Some indicators are missing combination_id. Details below:")
     print(missing_rows)
   }
 }
@@ -241,7 +270,7 @@ check_source_code <- function(
     filter(n_source_codes > 1)
   
   if(nrow(results) > 0){
-    message("\u274C FAIL: Some indicators have more than one source code.")
+    message("\u26A0\uFE0F WARNING: Some indicators have more than one source code.")
     return(results)
   }else{
     message("\u2705 PASS: Every indicator has exactly one source code.")
@@ -249,12 +278,6 @@ check_source_code <- function(
   }
 }
 
-# df <- data.frame(
-#   indicator_id = c(1,1,2,2,3,3),
-#   source_code = c(1,2, 3,3, 1, 2 )
-# )
-#
-# check_source_code(df)
 
 # Function to check valid percentages ------------------------------------------
 check_percentages <- function(df){
@@ -266,7 +289,7 @@ check_percentages <- function(df){
   if(nrow(invalid_rows) > 0){
     
     failed_indicators <- unique(invalid_rows$indicator_id)
-    message("\u274C FAIL: Found percentages greather than 100 for indicator(s):",
+    message("\u26A0\uFE0F WARNING: Found percentages greater than 100 for indicator(s):",
             paste(failed_indicators, collapse = ", ")
     )
     
@@ -276,14 +299,6 @@ check_percentages <- function(df){
   
   return(invalid_rows)
 }
-
-# df <- data.frame(
-#   indicator_id = c(1,1,2,2),
-#   value_type_code = c(2,2,2,1),
-#   indicator_value = c(95,120,105,300)
-# )
-#
-# check_percentages(df)
 
 ## Run all DQ checks ------------------------------------------------------------
 
