@@ -1,0 +1,338 @@
+# DQ functions------------------------------------------------------------------
+## Function to check row counts ------------------------------------------------
+
+check_row_counts <- function(df, reference_data) {
+  # Inputs:
+  #   input_data     - data frame whose row count will be checked
+  #   reference_data - data frame to compare against
+  #
+  # Output:
+  #   Prints a message indicating whether the row counts match (with counts).
+  
+  input_rows <- nrow(df)
+  reference_rows <- nrow(reference_data)
+  
+  if (input_rows == reference_rows) {
+    message("\u2705 PASS: Row counts match: ", input_rows, " rows")
+  } else {
+    message("\u274C FAIL: Row counts do NOT match. ",
+            "Input: ", input_rows, " rows | Reference: ", reference_rows, " rows")
+  }
+}
+
+## Function to check non-populated columns -------------------------------------
+
+# ignoring numerator and denominator as these can be empty columns for pre-calculated indicators
+
+check_rows_with_missing <- function(df, metadata, cols = NULL,
+                                    ignore = c("numerator", "denominator",
+                                               "lower_ci95", "upper_ci95"),
+                                    show_n = 10
+) {
+  # Inputs:
+  #   df     - data frame whose rows will be checked
+  #   metadata - metadata to filter indicators to be checked
+  #
+  # Output:
+  #   A dataframe with columns containing missing rows
+  
+  current_ids <- metadata |>
+    filter(status_code == 1 & precalculated == "No") |> # only want to check non pre-calculated indicators
+    distinct(indicator_id) |>
+    pull(indicator_id)
+  
+  # columns to check
+  cols_to_check <-
+    if (is.null(cols)) setdiff(names(df), ignore) else intersect(cols, names(df))
+  
+  miss_df <- df |>
+    filter(denominator != 0 & !is.na(denominator)) |> # rows required processing
+    filter(indicator_id %in% current_ids) |>
+    filter(if_any(all_of(cols_to_check), ~ is.na(.x)))
+  
+  if (nrow(miss_df) == 0) {
+    message("\u2705 PASS: No rows with missing values in the checked columns.")
+  } else {
+    message("\u274C FAIL: Found rows with missing values in the checked columns: ", nrow(miss_df))
+    print(utils::head(miss_df, show_n))
+  }
+  
+  return(miss_df)
+  
+}
+
+## Function to check unique age group code for dasr indicator ------------------
+
+check_age_group_code <- function(df) {
+  #  Inputs:
+  #   df - data frame containing DASR records; must include
+  #        `indicator_id`, `age_group_code`, and `value_type_code`
+  #
+  # Output:
+  #   Prints a message indicating whether each DASR (`value_type_code == 4`)
+  #   indicator_id has exactly one unique `age_group_code` (OK) or if any
+  #   indicator_id has more than one (problem).
+  
+  unique_age_count <- df |>
+    filter(value_type_code == 4) |>
+    distinct(indicator_id, age_group_code) |>
+    group_by(indicator_id) |>
+    summarise(count = n()) |>
+    arrange(indicator_id) |>
+    filter(count > 1)
+  
+  if(nrow(unique_age_count) == 0){
+    message("\u2705 PASS: One unique age group code per dasr indicator ID")
+  } else{
+    message("\u274C FAIL: More than 1 age group code per dasr indicator ID")
+  }
+}
+
+## Function to check all time period types are populated -----------------------
+check_time_period_type <- function(df) {
+  #  Inputs:
+  #   df - data frame whose rows will be checked
+  #
+  # Output:
+  #   Prints a message indicating whether time period column is populated or not
+  missing_rows <- df |>
+    filter(is.na(time_period_type)) |>
+    distinct(indicator_id, start_date, end_date)
+  
+  if (nrow(missing_rows) == 0) {
+    message("\u2705 PASS: time_period_type is populated for all rows.")
+  } else {
+    message("\u274C FAIL: Some indicators are missing time_period_type. Details below:")
+    print(missing_rows)
+  }
+}
+
+
+## Function to check value columns are populated for active indicators ---------
+
+check_active_indicator_values <- function(df, metadata) {
+  active_ids <- metadata |> 
+    filter(status_code == 1) |> 
+    distinct(indicator_id) |> 
+    pull(indicator_id)
+  
+  # Return rows with missing values in the key indicator_value column
+  failures <- df |> 
+    filter(indicator_id %in% active_ids,
+           is.na(indicator_value))
+  
+  if (nrow(failures) == 0) {
+    message("\u2705 PASS: All active indicators have populated indicator_value.")
+    return(invisible(NULL))  
+  } else {
+    failed_ids <- failures |> 
+      distinct(indicator_id) |> 
+      pull(indicator_id)
+    
+    message("\u274C FAIL: Found active indicators with missing indicator_value. However, this may be acceptable for percentage change metrics, particularly when there are no baseline/previous/plan values for the actuals to be compared against.
+             Indicator IDs:", paste(failed_ids, collapse = ", "))
+    print(head(failures))
+    return(failures)
+  }
+}
+
+# Function to check missing confidence intervals -------------------------------
+check_missing_confidence_intervals <- function(df){
+  warnings <- df |> 
+    filter(!is.na(indicator_value),
+           is.na(lower_ci95) | is.na(upper_ci95)
+    )
+  
+  if(nrow(warnings) == 0){
+    message("\u2705 PASS: No missing confidence intervals." )
+  } else{
+    failed_ids <- warnings |> 
+      distinct(indicator_id) |> 
+      pull(indicator_id)
+    
+    message("\u274C FAIL: Some rows have missing confidence intervals, but this may be acceptable.
+            Indicator IDs:", paste(sort(failed_ids), collapse = ", "))
+    print(head(warnings))
+  }
+  
+  return(warnings)
+}
+
+## Function to check combination id is populated -------------------------------
+check_combination_splits <- function(df) {
+  #  Inputs:
+  #   df - data frame whose rows will be checked
+  #
+  # Output:
+  #   Prints a message indicating whether `combination_id` column is populated or not
+  missing_rows <- df |>
+    filter(is.na(combination_id))
+  
+  if (nrow(missing_rows) == 0) {
+    message("\u2705 PASS: combination_id is populated for all rows.")
+  } else {
+    message("\u274C FAIL: Some indicators are missing combination_id. Details below:")
+    print(missing_rows)
+  }
+}
+
+## Function to check duplicates ------------------------------------------------
+
+check_duplicates <- function(df, key_cols=c(
+  "indicator_id",
+  "time_period_type",
+  "aggregation_id",
+  "start_date",
+  "end_date",
+  "imd_code",
+  "ethnicity_code"
+), indicator_filter = NULL) {
+  
+  result <- df %>%
+    
+    # Optional indicator filter
+    {
+      if (!is.null(indicator_filter)) {
+        filter(., indicator_id %in% indicator_filter)
+      } else {
+        .
+      }
+    } |>
+    
+    # Group by key columns
+    group_by(across(all_of(key_cols))) |>
+    
+    # Count rows
+    summarise(row_count = n(), .groups = "drop") |>
+    
+    # Keep only duplicates
+    filter(row_count > 1) |>
+    
+    arrange(indicator_id)
+  
+  if (nrow(result) > 0) {
+    message(
+      "\u274C FAIL: Duplicate records found: ",
+      nrow(result),
+      " duplicated key combination(s)."
+    )
+  } else {
+    message("\u2705 PASS: No Duplicate records found for the specified key columns")
+  }
+  
+  return(result)
+}
+
+## Function to check source codes ----------------------------------------------
+
+check_source_code <- function(
+    df,
+    indicator_col = "indicator_id",
+    source_code_col = "source_code"){
+  
+  # Count distinct source codes per indicator
+  results <- df |>
+    group_by(.data[[indicator_col]]) |>
+    summarise(
+      n_source_codes = n_distinct(.data[[source_code_col]]),
+      source_codes = paste(unique(.data[[source_code_col]]), collapse = ", "),
+      .groups = "drop"
+    ) |>
+    filter(n_source_codes > 1)
+  
+  if(nrow(results) > 0){
+    message("\u274C FAIL: Some indicators have more than one source code.")
+    return(results)
+  }else{
+    message("\u2705 PASS: Every indicator has exactly one source code.")
+    return(NULL)
+  }
+}
+
+# df <- data.frame(
+#   indicator_id = c(1,1,2,2,3,3),
+#   source_code = c(1,2, 3,3, 1, 2 )
+# )
+#
+# check_source_code(df)
+
+# Function to check valid percentages ------------------------------------------
+check_percentages <- function(df){
+  invalid_rows <- df |>
+    filter(value_type_code == 2,
+           !is.na(indicator_value),
+           indicator_value > 100)
+  
+  if(nrow(invalid_rows) > 0){
+    
+    failed_indicators <- unique(invalid_rows$indicator_id)
+    message("\u274C FAIL: Found percentages greather than 100 for indicator(s):",
+            paste(failed_indicators, collapse = ", ")
+    )
+    
+  } else{
+    message("\u2705 PASS: All percentage values are valid.")
+  }
+  
+  return(invalid_rows)
+}
+
+# df <- data.frame(
+#   indicator_id = c(1,1,2,2),
+#   value_type_code = c(2,2,2,1),
+#   indicator_value = c(95,120,105,300)
+# )
+#
+# check_percentages(df)
+
+## Run all DQ checks ------------------------------------------------------------
+
+run_all_dq_checks <- function(df, reference_data, metadata, cols_to_check = NULL, show_n = 10) {
+  message("\n==== Running Data Quality Checks ====\n\n")
+  
+  message("1) Row counts\n")
+  check_row_counts(df, reference_data)
+  cat("\n")
+  
+  message("2) Rows with missing required columns\n")
+  check_rows_with_missing(df, metadata = metadata)
+  cat("\n")
+  
+  message("3) Unique age_group_code for DASR indicators\n")
+  check_age_group_code(df)
+  cat("\n")
+  
+  message("4) time_period_type populated\n")
+  check_time_period_type(df)
+  cat("\n")
+  
+  message("5) Active indicator values populated\n")
+  check_active_indicator_values(df, metadata)
+  cat("\n")
+  
+  message("6) combination_id populated\n")
+  check_combination_splits(df)
+  cat("\n")
+  
+  message("7) Identify duplicates\n")
+  check_duplicates(df)
+  cat("\n")
+  
+  message("8) Check number of unique source codes \n")
+  check_source_code(df)
+  cat("\n")
+  
+  message("9) Check invalid percentage values \n")
+  check_percentages(df)
+  
+  message("10) Check missing confidence intervals \n")
+  check_missing_confidence_intervals(df)
+  
+  message("\n==== DQ checks completed ====\n")
+}
+
+
+
+
+
+
