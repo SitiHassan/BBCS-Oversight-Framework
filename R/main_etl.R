@@ -14,6 +14,7 @@ run_start <- Sys.time()
 ids <- c("All")
 
 # Source all function files
+source("R/excel_data_load.R")
 source("R/transformations.R")
 source("R/time_periods.R")
 source("R/calculations.R")
@@ -81,6 +82,8 @@ run_all <- function(conn, indicator_ids = "All", table_name) {
     table_name   = table_name,
     indicator_ids = ids
   ) 
+  
+  assign("staging_data", staging_data, envir = .GlobalEnv)
   
   # Run ETL
   message("Processing indicator data ...")
