@@ -923,16 +923,20 @@ calculate_sii <- function(data, group_cols = c("indicator_id", "start_date", "en
       
     )
   
-  invalid_groups <- quintile_check |> 
+  invalid_groups <- quintile_check |>
     dplyr::filter(!valid_quintiles)
   
-  if(nrow(invalid_groups) > 0){
-    print(invalid_groups)
+  if (nrow(invalid_groups) > 0) {
+    
+    # Print invalid groups during interactive use, but not during automated tests
+    if (interactive()) {
+      print(invalid_groups)
+    }
+    
     stop(
       nrow(invalid_groups),
       " grouping level(s) do not contain exactly one row ",
-      "for each IMD quintile 1, 2, 3, 4 and 5. ",
-      "See the printed table for details."
+      "for each IMD quintile 1, 2, 3, 4 and 5."
     )
   }
   
