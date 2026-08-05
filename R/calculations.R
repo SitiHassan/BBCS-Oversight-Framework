@@ -835,7 +835,8 @@ calc_dasr <- function(df_in, metadata, age_lookup){
 #' @export
 calculate_sii <- function(data, group_cols = c("indicator_id", "start_date", "end_date",
                                                "aggregation_id", "age_group_code", "sex_code",
-                                               "ethnicity_code", "value_type_code", "source_code", "creation_date"),
+                                               "ethnicity_code", "value_type_code", "source_code", "creation_date",
+                                               "time_period_type", "combination_id"),
                           quintile_col = "imd_code", numerator_col = "numerator", denominator_col = "denominator"){
   
   #1. Check inputs
@@ -1059,7 +1060,9 @@ calculate_sii <- function(data, group_cols = c("indicator_id", "start_date", "en
       ethnicity_code,
       creation_date,
       value_type_code,
-      source_code
+      source_code,
+      time_period_type,
+      combination_id
     ) |> 
     dplyr::ungroup()
   
