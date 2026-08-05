@@ -158,6 +158,10 @@ calculate_values <- function(data, metadata, age_lookup, metadata_key = "indicat
   temp6 <- df_calc |> calc_difference() |>
     tidy_output()
   
+  # -------- SII ---------------------------------------------------------------
+  message("\u25B6 Calculating SII...")
+  temp7 <- df_calc |> calculate_sii() |>
+    tidy_output()
   
   # -------- Combine all outputs ---------------------------------------------
   message("\u25B6 Combining all outputs...")
@@ -170,6 +174,7 @@ calculate_values <- function(data, metadata, age_lookup, metadata_key = "indicat
     temp4,            # Count
     temp5,            # Percentage change
     temp6,            # Difference
+    temp7             # SII
   ) |> clean_data_types()
   
   # -------- Reporting of output ---------------------------------------------
@@ -182,6 +187,7 @@ calculate_values <- function(data, metadata, age_lookup, metadata_key = "indicat
   print(paste("Total rows for temp4 (Count):", nrow(temp4)))
   print(paste("Total rows for temp5 (Percentage change):", nrow(temp5)))
   print(paste("Total rows for temp6 (Difference):", nrow(temp6)))
+  print(paste("Total rows for temp7 (SII):", nrow(temp7)))
   
   # -------- Reporting of skipped items --------------------------------------
   message("\u25B6 Reporting skipped items...")
@@ -225,5 +231,6 @@ calculate_values <- function(data, metadata, age_lookup, metadata_key = "indicat
               dasr = temp3,
               count = temp4,
               perc_change = temp5,
-              difference = temp6))
+              difference = temp6,
+              sii = temp7))
 }
