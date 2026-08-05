@@ -16,7 +16,8 @@ check_row_counts <- function(df, reference_data) {
     message("\u2705 PASS: Row counts match: ", input_rows, " rows")
   } else {
     message("\u26A0\uFE0F WARNING: Row counts do NOT match. ",
-            "Input: ", input_rows, " rows | Reference: ", reference_rows, " rows")
+            "Input: ", input_rows, " rows | Reference: ", reference_rows, " rows",
+            "\n\nThis may be expected for metrics where multiple input rows are collapsed into a single calculated output row. ")
   }
 }
 
