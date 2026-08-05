@@ -26,3 +26,10 @@ testthat::test_that("calculate_sii returns one result per grouping level", {
     is.numeric(result$sii_signed_percentage_points)
   )
 })
+
+calculate_sii(
+  data = output$staging_data,
+  quintile_col = imd_code,
+  numerator_col = numerator,
+  denominator_col = denominator
+)
