@@ -636,17 +636,218 @@ calc_dasr <- function(df_in, metadata, age_lookup){
 }
 
 # Function to calculate SII ----------------------------------------------------
+#' Calculate the Slope Index of Inequality
+#'
+#' Calculates the Slope Index of Inequality (SII) for a binary outcome measured
+#' across five deprivation quintiles. A separate inverse-variance-weighted
+#' linear regression model is fitted for each combination of the supplied
+#' grouping columns.
+#'
+#' Each grouping level must contain exactly one row for each deprivation
+#' quintile from 1 to 5. The numerator and denominator are used to calculate
+#' the outcome proportion within each quintile.
+#'
+#' @section Calculation:
+#'
+#' For each deprivation quintile, the outcome proportion is calculated as:
+#'
+#' \deqn{p = \frac{numerator}{denominator}}
+#'
+#' A weighted linear regression is then fitted:
+#'
+#' \deqn{p = intercept + slope \times deprivation\ position}
+#'
+#' The regression uses the five quintile-specific proportions rather than a
+#' single pooled proportion.
+#'
+#' @section Deprivation scaling:
+#'
+#' Deprivation quintiles are assigned evenly spaced relative deprivation
+#' positions:
+#'
+#' \itemize{
+#'   \item Quintile 1, most deprived: 0.9
+#'   \item Quintile 2: 0.7
+#'   \item Quintile 3: 0.5
+#'   \item Quintile 4: 0.3
+#'   \item Quintile 5, least deprived: 0.1
+#' }
+#'
+#' The scale runs from the least deprived population at 0.1 to the most
+#' deprived population at 0.9. The fitted regression line is extrapolated to
+#' positions 0 and 1 to estimate the outcome at the least and most deprived
+#' population extremes.
+#'
+#' Because the full deprivation scale runs from 0 to 1, the regression slope
+#' represents the modelled difference in the outcome proportion between the
+#' most and least deprived population extremes.
+#'
+#' @section Regression weighting:
+#'
+#' Each quintile is weighted using the inverse of its estimated binomial
+#' variance:
+#'
+#' \deqn{variance = \frac{p(1-p)}{n}}
+#'
+#' \deqn{weight = \frac{1}{variance}}
+#'
+#' where \eqn{p} is the quintile-specific outcome proportion and \eqn{n} is
+#' its denominator.
+#'
+#' Quintile estimates with greater statistical precision receive more weight
+#' in the regression. Estimates based on smaller samples generally have larger
+#' variance and therefore receive less weight.
+#'
+#' @section Interpretation:
+#'
+#' The signed SII is the regression slope multiplied by 100 and is expressed
+#' in percentage points:
+#'
+#' \deqn{signed\ SII = slope \times 100}
+#'
+#' Under the scaling used by this function:
+#'
+#' \itemize{
+#'   \item a positive signed SII indicates that the modelled outcome is higher
+#'   at the most deprived extreme;
+#'   \item a negative signed SII indicates that the modelled outcome is lower
+#'   at the most deprived extreme;
+#'   \item a signed SII close to zero indicates little modelled socioeconomic
+#'   gradient.
+#' }
+#'
+#' The returned \code{indicator_value} is the absolute SII:
+#'
+#' \deqn{absolute\ SII = |slope \times 100|}
+#'
+#' It represents the size of the modelled deprivation gap in percentage
+#' points, regardless of direction. Whether a higher or lower outcome is
+#' favourable depends on the indicator being analysed.
+#'
+#' The SII is not simply the observed difference between deprivation quintiles
+#' 1 and 5. It uses a weighted regression fitted across all five quintiles.
+#'
+#' @section Output decisions:
+#'
+#' The function returns one row for each grouping level instead of one row for
+#' each deprivation quintile.
+#'
+#' The standard output is constructed using the following decisions:
+#'
+#' \itemize{
+#'   \item \code{numerator} is pooled by summing the numerators across all five
+#'   deprivation quintiles;
+#'
+#'   \item \code{denominator} is pooled by summing the denominators across all
+#'   five deprivation quintiles;
+#'
+#'   \item \code{indicator_value} is assigned the absolute SII expressed in
+#'   percentage points;
+#'
+#'   \item \code{lower_ci95} and \code{upper_ci95} are assigned
+#'   \code{NA_real_} because confidence intervals are not currently calculated;
+#'
+#'   \item \code{imd_code} is assigned \code{999} because the result uses all
+#'   five deprivation quintiles and does not represent an individual quintile;
+#'
+#'   \item the remaining grouping and metadata columns are retained from the
+#'   input data.
+#' }
+#'
+#' The pooled numerator and denominator describe the total observations
+#' included across the five quintiles. They are not used as a single pooled
+#' rate when calculating the SII. The SII is calculated from the five separate
+#' quintile-specific proportions and their weights.
+#'
+#' @param data A data frame containing one row per deprivation quintile for
+#'   each grouping level. The function currently retains rows where
+#'   \code{value_type_code == 14}.
+#'
+#' @param group_cols A character vector containing the columns that uniquely
+#'   define one SII result. All five quintile rows within a grouping level must
+#'   contain identical values in these columns.
+#'
+#' @param quintile_col The name of the deprivation quintile column. Defaults
+#'   to \code{"imd_code"}. Values must be convertible to integers from 1 to 5,
+#'   where 1 represents the most deprived quintile and 5 represents the least
+#'   deprived quintile.
+#'
+#' @param numerator_col The name of the numerator column. Defaults to
+#'   \code{"numerator"}.
+#'
+#' @param denominator_col The name of the denominator column. Defaults to
+#'   \code{"denominator"}.
+#'
+#' @return A tibble with one row per SII grouping level containing:
+#'
+#' \describe{
+#'   \item{\code{indicator_id}}{Indicator identifier.}
+#'   \item{\code{start_date}}{Start date of the reporting period.}
+#'   \item{\code{end_date}}{End date of the reporting period.}
+#'   \item{\code{numerator}}{Pooled numerator across quintiles 1 to 5.}
+#'   \item{\code{denominator}}{Pooled denominator across quintiles 1 to 5.}
+#'   \item{\code{indicator_value}}{Absolute SII in percentage points.}
+#'   \item{\code{lower_ci95}}{Missing numeric value because confidence
+#'   intervals are not currently calculated.}
+#'   \item{\code{upper_ci95}}{Missing numeric value because confidence
+#'   intervals are not currently calculated.}
+#'   \item{\code{imd_code}}{Set to 999 to represent all deprivation quintiles.}
+#'   \item{\code{aggregation_id}}{Organisation or geography identifier.}
+#'   \item{\code{age_group_code}}{Age-group identifier.}
+#'   \item{\code{sex_code}}{Sex identifier.}
+#'   \item{\code{ethnicity_code}}{Ethnicity identifier.}
+#'   \item{\code{creation_date}}{Creation date retained from the input group.}
+#'   \item{\code{value_type_code}}{Value-type identifier for the SII measure.}
+#'   \item{\code{source_code}}{Data-source identifier.}
+#' }
+#'
+#' @details
+#' Before fitting the models, the function validates that:
+#'
+#' \itemize{
+#'   \item all required columns exist;
+#'   \item numerator and denominator columns are numeric and non-missing;
+#'   \item denominators are greater than zero;
+#'   \item numerators are non-negative and do not exceed denominators;
+#'   \item each grouping level contains exactly one row for each deprivation
+#'   quintile from 1 to 5;
+#'   \item the calculated variance values are positive and finite.
+#' }
+#'
+#' The function stops when a quintile-specific proportion is exactly 0 or 1
+#' because its estimated binomial variance is zero and the inverse-variance
+#' weight is therefore undefined.
+#'
+#' @examples
+#' \dontrun{
+#' sii_results <- calculate_sii(
+#'   data = staging_data
+#' )
+#'
+#' sii_results <- calculate_sii(
+#'   data = my_data,
+#'   quintile_col = "imd_code",
+#'   numerator_col = "numerator",
+#'   denominator_col = "denominator"
+#' )
+#' }
+#'
+#' @export
 calculate_sii <- function(data, group_cols = c("indicator_id", "start_date", "end_date",
                                                "aggregation_id", "age_group_code", "sex_code",
-                                               "ethnicity_code", "source_code"),
-                          quintile_col, numerator_col, denominator_col){
+                                               "ethnicity_code", "value_type_code", "source_code", "creation_date"),
+                          quintile_col = "imd_code", numerator_col = "numerator", denominator_col = "denominator"){
   
   #1. Check inputs
   
   # Missing function arguments
-  if(missing(data) || missing(quintile_col) || missing(numerator_col) || missing(denominator_col)){
-    stop("function calculate_sii() requires the arguments: `data`,  `quintile_col`, `numerator_col`, `denominator_col`")
+  if (missing(data)) {
+    stop("`data` must be supplied to calculate_sii().")
   }
+  
+  
+  data <- data |> 
+    dplyr::filter(value_type_code == 14)
   
   # Capture the supplied column names
   group_names <- group_cols # already a character vector
@@ -803,13 +1004,13 @@ calculate_sii <- function(data, group_cols = c("indicator_id", "start_date", "en
   #7. Extract slope and intercept
   model_data <- model_data |> 
     dplyr::mutate(
-      slope = purrr:map_dbl(
+      slope = purrr::map_dbl(
         model,
         ~ unname(
           stats::coef(.x)[["deprivation_position"]]
         )
       ),
-      intercept =  purrr:map_dbl(
+      intercept =  purrr::map_dbl(
         model,
         ~ unname(
           stats::coef(.x)[["(Intercept)"]]
@@ -817,9 +1018,17 @@ calculate_sii <- function(data, group_cols = c("indicator_id", "start_date", "en
       )
     )
   
-  #8. Create final output
+  #8. Create SII measures and pooled counts
   model_data <- model_data |> 
     dplyr::mutate(
+      numerator = purrr::map_dbl(
+        data,
+        ~ sum(.x[[numerator_name]], na.rm = TRUE)
+      ),
+      denominator = purrr::map_dbl(
+        data,
+        ~ sum(.x[[denominator_name]], na.rm = TRUE)
+      ),
       sii_signed_percentage_points = slope * 100,
       sii_absolute_percentage_points = abs(slope * 100),
       predicted_least_deprived_percent = purrr::map_dbl(
@@ -832,18 +1041,29 @@ calculate_sii <- function(data, group_cols = c("indicator_id", "start_date", "en
       )
     )
   
-  #9. Return final table
-  model_data |> 
-    dplyr::select(
-      dplyr::all_of(group_names),
-      intercept,
-      slope,
-      sii_signed_percentage_points,
-      sii_absolute_percentage_points,
-      predicted_least_deprived_percent,
-      predicted_most_deprived_percent
+  #9. Return final output in standard schema
+  final_output <- model_data |> 
+    dplyr::transmute(
+      indicator_id,
+      start_date,
+      end_date,
+      numerator,
+      denominator,
+      indicator_value = sii_absolute_percentage_points,
+      lower_ci95 = NA_real_,
+      upper_ci95 = NA_real_,
+      imd_code = 999L,
+      aggregation_id, 
+      age_group_code,
+      sex_code,
+      ethnicity_code,
+      creation_date,
+      value_type_code,
+      source_code
     ) |> 
     dplyr::ungroup()
+  
+  return(final_output)
   
 }
 
