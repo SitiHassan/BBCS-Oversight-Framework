@@ -1,3 +1,7 @@
+# Purpose(s):
+# To store all functions related to operations/transformations involving database
+
+
 # Function to run SQL script ---------------------------------------------------
 run_sql_file <- function(conn, path) {
   # Inputs:
