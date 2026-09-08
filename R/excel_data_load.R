@@ -2,6 +2,13 @@ library(readxl)
 library(tidyverse)
 library(purrr)
 
+# Purpose:
+# To load the Excel metrics data in a standardised format into [Cluster_BBCS].[BBCS].[Oversight_Framework_Fact_SQL_Staging_Data_Excel]
+# The data are then inserted into [Cluster_BBCS].[BBCS].[Oversight_Framework_Fact_SQL_Staging_Data]
+# The data are finally deduplicated
+# Input file path: //Mlcsu-bi-fs/bsolccg/Reports/02_Routine/BBCS Oversight Framework/SQL scripts/Excel Input
+
+# List all Excel files 
 excel_files <- list.files(
   path = "//Mlcsu-bi-fs/bsolccg/Reports/02_Routine/BBCS Oversight Framework/SQL scripts/Excel Input",
   pattern = "\\.(xlsx|xlsm|xls)$",
@@ -9,8 +16,10 @@ excel_files <- list.files(
   ignore.case = TRUE
 )
 
+# Don't read the Data Input Template
 excel_files <- excel_files[basename(excel_files) != "Data Input Template.xlsx"]
 
+# Establish SQL connection
 sql_connection <- dbConnect(
   odbc::odbc(),
   Driver   = "SQL Server",
@@ -19,37 +28,45 @@ sql_connection <- dbConnect(
   Trusted_Connection = "Yes"
 )
 
-read_input_file <- function(file_path) {
-  
+# Function to read an Excel file
+read_excel_file <- function(file_path, sheet_name) {
+
   file_name <- basename(file_path)
   message("Processing file: ", file_name)
-  
+
   tryCatch(
     {
-      read_excel(
+      df <- readxl::read_excel(
         path = file_path,
-        sheet = "Data Input"
+        sheet = sheet_name
       ) |>
-        mutate(Source_File = file_name)
+        dplyr::mutate(source_file = file_name)
+
+      message("Excel file processed \u2705 ")
+      
+      return(df)
     },
     error = function(e) {
       warning(
         "Could not process ", file_name,
         ": ", conditionMessage(e)
       )
-      
+
       NULL
     }
   )
 }
 
-all_data <- map_dfr(
+# Read all Excel files
+all_data <- purrr::map_dfr(
   excel_files,
-  read_input_file
+  read_excel_file,
+  sheet_name = "Data Input"
 )
 
 head(all_data)
 
+# Append data to Oversight_Framework_Fact_SQL_Staging_Data_Excel
 DBI::dbWriteTable(
   conn = sql_connection,
   name = DBI::Id(
@@ -60,6 +77,7 @@ DBI::dbWriteTable(
   append = TRUE
 )
 
+# Insert data [Cluster_BBCS].[BBCS].[Oversight_Framework_Fact_SQL_Staging_Data]
 dbExecute(sql_connection,
           "  INSERT INTO [Cluster_BBCS].[BBCS].[Oversight_Framework_Fact_SQL_Staging_Data] (
        [Reference_ID]
@@ -90,9 +108,11 @@ dbExecute(sql_connection,
 	  ) "
 )
 
+# Remove the Excel staging table from the database
 dbExecute(sql_connection,
           "DROP TABLE IF EXISTS [Cluster_BBCS].[BBCS].[Oversight_Framework_Fact_SQL_Staging_Data_Excel]")
 
+# Deduplicate data
 dbExecute(
   sql_connection,
   "DROP TABLE IF EXISTS #Duplicates

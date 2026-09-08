@@ -162,6 +162,7 @@ calculate_values <- function(data, metadata, age_lookup, metadata_key = "indicat
   message("\u25B6 Calculating SII...")
   temp7 <- df_calc |> calculate_sii() |>
     tidy_output()
+
   
   # -------- Combine all outputs ---------------------------------------------
   message("\u25B6 Combining all outputs...")
