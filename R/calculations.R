@@ -1,3 +1,5 @@
+library(PHEindicatormethods)
+
 # calculate_dsr2 ---------------------------------------------------------------
 # This function ONLY allows the multiplier argument to be passed as a scalar value
 
