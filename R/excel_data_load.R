@@ -8,7 +8,11 @@ library(purrr)
 # The data are finally deduplicated
 # Input file path: //Mlcsu-bi-fs/bsolccg/Reports/02_Routine/BBCS Oversight Framework/SQL scripts/Excel Input
 
-# List all Excel files 
+
+#1.  List all Excel files ------------------------------------------------------
+
+cli::cli_h1("Listing Excel files")
+
 excel_files <- list.files(
   path = "//Mlcsu-bi-fs/bsolccg/Reports/02_Routine/BBCS Oversight Framework/SQL scripts/Excel Input",
   pattern = "\\.(xlsx|xlsm|xls)$",
@@ -19,7 +23,8 @@ excel_files <- list.files(
 # Don't read the Data Input Template
 excel_files <- excel_files[basename(excel_files) != "Data Input Template.xlsx"]
 
-# Establish SQL connection
+#2. Establish SQL connection ---------------------------------------------------
+
 sql_connection <- dbConnect(
   odbc::odbc(),
   Driver   = "SQL Server",
@@ -28,45 +33,26 @@ sql_connection <- dbConnect(
   Trusted_Connection = "Yes"
 )
 
-# Function to read an Excel file
-read_excel_file <- function(file_path, sheet_name) {
+#3. Read all Excel files -------------------------------------------------------
 
-  file_name <- basename(file_path)
-  message("Processing file: ", file_name)
+cli::cli_h1("Reading Excel files")
 
-  tryCatch(
-    {
-      df <- readxl::read_excel(
-        path = file_path,
-        sheet = sheet_name
-      ) |>
-        dplyr::mutate(source_file = file_name)
-
-      message("Excel file processed \u2705 ")
-      
-      return(df)
-    },
-    error = function(e) {
-      warning(
-        "Could not process ", file_name,
-        ": ", conditionMessage(e)
-      )
-
-      NULL
-    }
-  )
-}
-
-# Read all Excel files
 all_data <- purrr::map_dfr(
   excel_files,
-  read_excel_file,
+  metricengineR::read_excel_file,
   sheet_name = "Data Input"
 )
 
+cli::cli_alert_success("Process completed.")
+
 head(all_data)
 
+#4. Loading data into SQL ------------------------------------------------------
+
 # Append data to Oversight_Framework_Fact_SQL_Staging_Data_Excel
+
+cli::cli_h1("Loading Excel data into SQL")
+
 DBI::dbWriteTable(
   conn = sql_connection,
   name = DBI::Id(
@@ -112,7 +98,13 @@ dbExecute(sql_connection,
 dbExecute(sql_connection,
           "DROP TABLE IF EXISTS [Cluster_BBCS].[BBCS].[Oversight_Framework_Fact_SQL_Staging_Data_Excel]")
 
-# Deduplicate data
+
+cli::cli_alert_success("Process completed.")
+
+#5. Deduplicate data -----------------------------------------------------------
+
+cli::cli_h1("Data Deduplication")
+
 dbExecute(
   sql_connection,
   "DROP TABLE IF EXISTS #Duplicates
@@ -141,3 +133,5 @@ INTO #Duplicates
       ON T1.PK_ID = T2.PK_ID
    WHERE T2.rn > 1"
 )
+
+cli::cli_alert_success("Process completed.")
